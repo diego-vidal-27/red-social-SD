@@ -26,10 +26,10 @@ app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 const db = mysql.createConnection({
-  host: 'localhost',
-  user: 'root',
-  password: '',
-  database: 'bd_messages'
+  host: process.env.DB_HOST || 'localhost',
+  user: process.env.DB_USER || 'root',
+  password: process.env.DB_PASSWORD || '',
+  database: process.env.DB_NAME || 'bd_messages'
 });
 
 db.connect((err) => {
@@ -468,8 +468,9 @@ io.on('connection', (socket) => {
 
 app.use(logger('dev'));
 
+// Aquí configuramos la ruta principal para servir login.html
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, '..', 'public', 'login.html'));
 });
 
 app.get('/login', (req, res) => {
