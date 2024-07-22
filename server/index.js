@@ -25,41 +25,32 @@ const secretKey = 'diegomm109';
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
-const db = mysql.createConnection({
+const dbConfig = {
   host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'bd_messages'
+  database: process.env.DB_NAME || 'bd_messages',
+  connectionLimit: 10, // Número máximo de conexiones
+  acquireTimeout: 30000, // Tiempo de espera para adquirir una nueva conexión
+  connectTimeout: 30000, // Tiempo de espera para establecer una nueva conexión
+};
+
+const pool = mysql.createPool(dbConfig);
+
+pool.on('connection', (connection) => {
+  console.log('Conexión a base de datos establecida');
 });
 
-db.connect((err) => {
-  if (err) {
-    console.error('Error al conectar a la base de datos:', err);
-    return;
-  }
-  console.log('Conexión exitosa a la base de datos MySQL');
+pool.on('error', (err) => {
+  console.error('Error en la conexión a la base de datos:', err);
 });
-
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const dir = path.join(__dirname, '..', 'public/uploads');
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    cb(null, dir);
-  },
-  filename: function (req, file, cb) {
-    cb(null, Date.now() + path.extname(file.originalname));
-  }
-});
-const upload = multer({ storage: storage });
 
 app.post('/register', (req, res) => {
   const { first_name, last_name, gender, birthdate, phone, username, email, password } = req.body;
   const hashedPassword = bcrypt.hashSync(password, 10);
   const profilePicture = '/images/logo_user.png'; 
   const sql = 'INSERT INTO users (first_name, last_name, gender, birthdate, phone, username, email, password, profile_picture) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)';
-  db.query(sql, [first_name, last_name, gender, birthdate, phone, username, email, hashedPassword, profilePicture], (err, result) => {
+  pool.query(sql, [first_name, last_name, gender, birthdate, phone, username, email, hashedPassword, profilePicture], (err, result) => {
     if (err) {
       console.error('Error al registrar usuario:', err);
       res.status(500).send({ message: 'Error al registrar usuario' });
@@ -72,7 +63,7 @@ app.post('/register', (req, res) => {
 app.post('/login', (req, res) => {
   const { username, password } = req.body;
   const sql = 'SELECT * FROM users WHERE username = ?';
-  db.query(sql, [username], (err, results) => {
+  pool.query(sql, [username], (err, results) => {
     if (err) {
       console.error('Error al iniciar sesión:', err);
       res.status(500).send({ message: 'Error al iniciar sesión' });
@@ -98,7 +89,7 @@ app.post('/login', (req, res) => {
 app.post('/validate-email', (req, res) => {
   const { email, username, birthdate } = req.body;
   const sql = 'SELECT * FROM users WHERE email = ? AND username = ? AND birthdate = ?';
-  db.query(sql, [email, username, birthdate], (err, results) => {
+  pool.query(sql, [email, username, birthdate], (err, results) => {
     if (err) {
       console.error('Error al validar los datos:', err);
       res.status(500).send('Error al validar los datos');
@@ -116,7 +107,7 @@ app.post('/reset-password', (req, res) => {
   const { email, newPassword } = req.body;
   const hashedPassword = bcrypt.hashSync(newPassword, 10);
   const sql = 'UPDATE users SET password = ? WHERE email = ?';
-  db.query(sql, [hashedPassword, email], (err, result) => {
+  pool.query(sql, [hashedPassword, email], (err, result) => {
     if (err) {
       console.error('Error al restablecer la contraseña:', err);
       res.status(500).send('Error al restablecer la contraseña');
@@ -157,7 +148,7 @@ app.get('/users', (req, res) => {
   const search = req.query.search;
   const userId = req.query.userId;
   const sql = 'SELECT id, username, profile_picture, 0 as isGroup FROM users WHERE username LIKE ? AND id != ?';
-  db.query(sql, [`%${search}%`, userId], (err, results) => {
+  pool.query(sql, [`%${search}%`, userId], (err, results) => {
     if (err) {
       console.error('Error al buscar usuarios:', err);
       res.status(500).send('Error al buscar usuarios');
@@ -180,7 +171,7 @@ app.get('/recent-contacts', (req, res) => {
     WHERE u.id != ?
     UNION
     SELECT g.id, g.name as username, g.picture as profile_picture, m.content as lastMessage, m.timestamp, m.user_id as lastMessageUserId, 1 as isGroup
-    FROM groups g
+    FROM \`groups\` g
     LEFT JOIN messages m ON m.id = (
       SELECT id FROM messages
       WHERE group_id = g.id
@@ -190,7 +181,7 @@ app.get('/recent-contacts', (req, res) => {
     WHERE gm.user_id = ?
     ORDER BY timestamp DESC
   `;
-  db.query(sql, [userId, userId, userId, userId], (err, results) => {
+  pool.query(sql, [userId, userId, userId, userId], (err, results) => {
     if (err) {
       console.error('Error al obtener contactos recientes:', err);
       res.status(500).send('Error al obtener contactos recientes');
@@ -204,11 +195,11 @@ app.get('/groups', (req, res) => {
   const userId = req.query.userId;
   const sql = `
     SELECT g.id, g.name, g.picture as profile_picture, 1 as isGroup
-    FROM groups g
+    FROM \`groups\` g
     JOIN group_members gm ON g.id = gm.group_id
     WHERE gm.user_id = ? AND g.name LIKE ?
   `;
-  db.query(sql, [userId, `%${req.query.search}%`], (err, results) => {
+  pool.query(sql, [userId, `%${req.query.search}%`], (err, results) => {
     if (err) {
       console.error('Error al obtener grupos del usuario:', err);
       res.status(500).send('Error al obtener grupos del usuario');
@@ -223,7 +214,7 @@ app.post('/create-group', upload.single('groupPicture'), (req, res) => {
   const groupPicture = req.file ? `/uploads/${req.file.filename}` : '/images/logo_groups.png'; 
   const sqlInsertGroup = 'INSERT INTO groups (name, picture) VALUES (?, ?)';
 
-  db.query(sqlInsertGroup, [groupName, groupPicture], (err, result) => {
+  pool.query(sqlInsertGroup, [groupName, groupPicture], (err, result) => {
     if (err) {
       console.error('Error al crear el grupo:', err);
       res.status(500).send('Error al crear el grupo');
@@ -234,7 +225,7 @@ app.post('/create-group', upload.single('groupPicture'), (req, res) => {
     const sqlInsertMembers = 'INSERT INTO group_members (group_id, user_id) VALUES ?';
     const membersValues = JSON.parse(members).map(memberId => [groupId, memberId]);
 
-    db.query(sqlInsertMembers, [membersValues], (err) => {
+    pool.query(sqlInsertMembers, [membersValues], (err) => {
       if (err) {
         console.error('Error al agregar miembros al grupo:', err);
         res.status(500).send('Error al agregar miembros al grupo');
@@ -249,7 +240,7 @@ app.post('/create-group', upload.single('groupPicture'), (req, res) => {
 app.post('/add-member', (req, res) => {
   const { groupId, userId } = req.body;
   const sql = 'INSERT INTO group_members (group_id, user_id) VALUES (?, ?)';
-  db.query(sql, [groupId, userId], (err) => {
+  pool.query(sql, [groupId, userId], (err) => {
     if (err) {
       console.error('Error al agregar miembro al grupo:', err);
       res.status(500).send({ success: false, message: 'Error al agregar miembro al grupo' });
@@ -262,7 +253,7 @@ app.post('/add-member', (req, res) => {
 app.post('/remove-member', (req, res) => {
   const { groupId, userId } = req.body;
   const sql = 'DELETE FROM group_members WHERE group_id = ? AND user_id = ?';
-  db.query(sql, [groupId, userId], (err) => {
+  pool.query(sql, [groupId, userId], (err) => {
     if (err) {
       console.error('Error al eliminar miembro del grupo:', err);
       res.status(500).send({ success: false, message: 'Error al eliminar miembro del grupo' });
@@ -288,21 +279,21 @@ app.get('/group-settings', (req, res) => {
     WHERE id NOT IN (SELECT user_id FROM group_members WHERE group_id = ?)
   `;
 
-  db.query(sqlGroup, [groupId], (err, groupResults) => {
+  pool.query(sqlGroup, [groupId], (err, groupResults) => {
     if (err) {
       console.error('Error al obtener datos del grupo:', err);
       res.status(500).send('Error al obtener datos del grupo');
       return;
     }
 
-    db.query(sqlMembers, [groupId], (err, memberResults) => {
+    pool.query(sqlMembers, [groupId], (err, memberResults) => {
       if (err) {
         console.error('Error al obtener miembros del grupo:', err);
         res.status(500).send('Error al obtener miembros del grupo');
         return;
       }
 
-      db.query(sqlNonMembers, [groupId], (err, nonMemberResults) => {
+      pool.query(sqlNonMembers, [groupId], (err, nonMemberResults) => {
         if (err) {
           console.error('Error al obtener usuarios no miembros del grupo:', err);
           res.status(500).send('Error al obtener usuarios no miembros del grupo');
@@ -350,7 +341,7 @@ io.on('connection', (socket) => {
       params = [userId, contactId, contactId, userId];
     }
 
-    db.query(sql, params, (err, results) => {
+    pool.query(sql, params, (err, results) => {
       if (err) {
         console.error('Error al recuperar mensajes de la base de datos:', err);
         return;
@@ -384,12 +375,12 @@ io.on('connection', (socket) => {
       const sql = 'INSERT INTO messages (content, user_id, contact_id, group_id, file_url) VALUES (?, ?, ?, ?, ?)';
       const queryParams = [msg, userId, contactId || null, groupId || null, file ? file.url : null];
 
-      db.query(sql, queryParams, (err, result) => {
+      pool.query(sql, queryParams, (err, result) => {
         if (err) {
           console.error('Error al insertar mensaje en la base de datos:', err);
           return;
         }
-        db.query('SELECT * FROM messages WHERE id = ?', [result.insertId], (err, rows) => {
+        pool.query('SELECT * FROM messages WHERE id = ?', [result.insertId], (err, rows) => {
           if (err) {
             console.error('Error al recuperar el mensaje guardado:', err);
             return;
@@ -530,7 +521,7 @@ app.post('/upload/profile-picture', profileUpload.single('file'), (req, res) => 
 
   const filePath = `/uploads/profiles/${userId}.jpg`;
 
-  db.query('UPDATE users SET profile_picture = ? WHERE id = ?', [filePath, userId], (err) => {
+  pool.query('UPDATE users SET profile_picture = ? WHERE id = ?', [filePath, userId], (err) => {
     if (err) {
       return res.status(500).send({ success: false, message: 'Database update failed' });
     }
@@ -550,7 +541,7 @@ app.post('/upload/group-picture', groupUpload.single('file'), (req, res) => {
 
   const filePath = `/uploads/groups/${groupId}.jpg`;
 
-  db.query('UPDATE groups SET picture = ? WHERE id = ?', [filePath, groupId], (err) => {
+  pool.query('UPDATE groups SET picture = ? WHERE id = ?', [filePath, groupId], (err) => {
     if (err) {
       return res.status(500).send({ success: false, message: 'Database update failed' });
     }
