@@ -30,9 +30,9 @@ const dbConfig = {
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'bd_messages',
-  connectionLimit: 10, // Número máximo de conexiones
-  acquireTimeout: 30000, // Tiempo de espera para adquirir una nueva conexión
-  connectTimeout: 30000, // Tiempo de espera para establecer una nueva conexión
+  connectionLimit: 10,
+  acquireTimeout: 30000,
+  connectTimeout: 30000,
 };
 
 const pool = mysql.createPool(dbConfig);
@@ -44,6 +44,52 @@ pool.on('connection', (connection) => {
 pool.on('error', (err) => {
   console.error('Error en la conexión a la base de datos:', err);
 });
+
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const dir = path.join(__dirname, '..', 'public/uploads');
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    cb(null, dir);
+  },
+  filename: function (req, file, cb) {
+    cb(null, Date.now() + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({ storage: storage });
+
+const profileStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const dir = path.join(__dirname, '..', 'public/uploads/profiles');
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    cb(null, dir);
+  },
+  filename: function (req, file, cb) {
+    const userId = req.query.userId;
+    cb(null, `${userId}.jpg`);
+  }
+});
+
+const groupStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const dir = path.join(__dirname, '..', 'public/uploads/groups');
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    cb(null, dir);
+  },
+  filename: function (req, file, cb) {
+    const groupId = req.query.groupId;
+    cb(null, `${groupId}.jpg`);
+  }
+});
+
+const profileUpload = multer({ storage: profileStorage });
+const groupUpload = multer({ storage: groupStorage });
 
 app.post('/register', (req, res) => {
   const { first_name, last_name, gender, birthdate, phone, username, email, password } = req.body;
@@ -209,7 +255,7 @@ app.get('/groups', (req, res) => {
   });
 });
 
-app.post('/create-group', upload.single('groupPicture'), (req, res) => {
+app.post('/create-group', groupUpload.single('groupPicture'), (req, res) => {
   const { groupName, members } = req.body;
   const groupPicture = req.file ? `/uploads/${req.file.filename}` : '/images/logo_groups.png'; 
   const sqlInsertGroup = 'INSERT INTO groups (name, picture) VALUES (?, ?)';
@@ -479,37 +525,6 @@ app.get('/select_chat', (req, res) => {
 server.listen(port, () => {
   console.log(`Servidor corriendo en el puerto ${port}`);
 });
-
-const profileStorage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const dir = path.join(__dirname, '..', 'public/uploads/profiles');
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    cb(null, dir);
-  },
-  filename: function (req, file, cb) {
-    const userId = req.query.userId;
-    cb(null, `${userId}.jpg`);
-  }
-});
-
-const groupStorage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const dir = path.join(__dirname, '..', 'public/uploads/groups');
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    cb(null, dir);
-  },
-  filename: function (req, file, cb) {
-    const groupId = req.query.groupId;
-    cb(null, `${groupId}.jpg`);
-  }
-});
-
-const profileUpload = multer({ storage: profileStorage });
-const groupUpload = multer({ storage: groupStorage });
 
 app.post('/upload/profile-picture', profileUpload.single('file'), (req, res) => {
   const file = req.file;
