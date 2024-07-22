@@ -364,7 +364,7 @@
         const formData = new FormData();
         formData.append('groupName', groupName);
         if (groupPicture) {
-          formData.append('groupPicture', groupPicture);
+          formData.append('groupPicture', groupPicture); // Aquí se debe asegurar de que el campo es "groupPicture"
         }
         formData.append('members', JSON.stringify(members));
 
