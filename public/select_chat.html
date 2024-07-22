@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Seleccionar Chat</title>
+  <link rel="stylesheet" href="/css/select_chat.css">
+</head>
+
+<body>
+  <div id="chat-container">
+    <div id="contacts">
+      <div id="user-profile">
+        <img id="profile-picture" src="/images/logo_user.png" alt="Perfil" class="profile-picture">
+        <span id="profile-name"></span>
+        <img id="logout-button" src="/images/logo_cerrar.png" alt="Cerrar sesión">
+      </div>
+      <input type="text" id="search" placeholder="Buscar usuarios...">
+      <div id="chats-section">
+        <h3 class="section-title"><i class="fas fa-comments"></i> Chats 💬</h3>
+        <ul id="contact-list"></ul>
+      </div>
+      <div id="groups-section">
+        <h3 class="section-title">
+          <i class="fas fa-users"></i> Grupos 👥
+          <button id="create-group-button" class="vertical-dots">⋮</button>
+        </h3>
+        <ul id="recent-contacts"></ul>
+      </div>
+    </div>
+    <div id="chat" class="chat-hidden">
+      <div id="chat-welcome">Bienvenido a tu chat</div>
+      <div class="button-container">
+        <img id="current-contact-picture" src="" alt="Perfil" class="profile-picture-small">
+        <span id="current-contact-name"></span>
+        <div>
+          <button id="call-button">📞</button>
+          <button id="video-call-button">📹</button>
+        </div>
+      </div>
+      <ul id="messages"></ul>
+      <form id="form">
+        <div class="input-container">
+          <input type="text" id="input" placeholder="Escribe un mensaje" autocomplete="off">
+          <input type="file" id="file-input" style="display:none">
+          <button type="button" id="file-input-icon">🖇️</button>
+          <button type="submit" id="send-message-button">➤</button>
+          <button type="button" id="audio-button">🎤</button>
+        </div>
+        <div id="file-preview"></div>
+      </form>
+    </div>
+  </div>
+  <div id="video-call-container" style="display: none;">
+    <video id="local-video" autoplay muted></video>
+    <video id="remote-video" autoplay></video>
+    <button id="end-call-button">Finalizar Llamada</button>
+  </div>
+  <div id="incoming-call-container" style="display: none;">
+    <p id="incoming-call-text"></p>
+    <button id="accept-call-button">Aceptar</button>
+    <button id="reject-call-button">Rechazar</button>
+  </div>
+  <div id="group-modal" class="modal">
+    <div class="modal-content">
+      <span class="close-button">&times;</span>
+      <h2>Crear Grupo</h2>
+      <label for="group-name">Nombre del Grupo</label>
+      <input type="text" id="group-name" placeholder="Nombre del Grupo" required>
+      <label for="group-picture-upload">Foto del Grupo</label>
+      <input type="file" id="group-picture-upload">
+      <label for="group-members">Seleccionar Integrantes</label>
+      <ul id="group-members-list"></ul>
+      <button id="create-group-confirm">Crear</button>
+      <button id="create-group-cancel">Cancelar</button>
+    </div>
+  </div>
+  <div id="group-settings-modal" class="modal">
+    <div class="modal-content">
+      <span class="close-button">&times;</span>
+      <h2>Configuración del Grupo</h2>
+      <label for="group-settings-picture-upload">Foto del Grupo</label>
+      <input type="file" id="group-settings-picture-upload">
+      <button id="save-group-picture">Guardar</button>
+    </div>
+  </div>
+  <div id="profile-modal" class="modal">
+    <div class="modal-content">
+      <span class="close-button">&times;</span>
+      <h2>Editar Perfil</h2>
+      <label for="profile-picture-upload">Foto de Perfil</label>
+      <input type="file" id="profile-picture-upload">
+      <button id="save-profile">Guardar</button>
+    </div>
+  </div>
+  <script type="module">
+    import { io } from 'https://cdn.socket.io/4.3.2/socket.io.esm.min.js';
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const token = sessionStorage.getItem('token');
+      const username = sessionStorage.getItem('username');
+      const userId = sessionStorage.getItem('userId');
+      const currentContactName = document.getElementById('current-contact-name');
+      const currentContactPicture = document.getElementById('current-contact-picture');
+      const chat = document.getElementById('chat');
+      const chatWelcome = document.getElementById('chat-welcome');
+
+      if (!token || !username || !userId) {
+        window.location.href = '/login';
+        return;
+      }
+
+      const searchInput = document.getElementById('search');
+      const contactList = document.getElementById('contact-list');
+      const recentContacts = document.getElementById('recent-contacts');
+      const form = document.getElementById('form');
+      const input = document.getElementById('input');
+      const messages = document.getElementById('messages');
+      const fileInput = document.getElementById('file-input');
+      const fileInputIcon = document.getElementById('file-input-icon');
+      const filePreview = document.getElementById('file-preview');
+      const audioButton = document.getElementById('audio-button');
+      const callButton = document.getElementById('call-button');
+      const videoCallButton = document.getElementById('video-call-button');
+      const endCallButton = document.getElementById('end-call-button');
+      const incomingCallContainer = document.getElementById('incoming-call-container');
+      const incomingCallText = document.getElementById('incoming-call-text');
+      const acceptCallButton = document.getElementById('accept-call-button');
+      const rejectCallButton = document.getElementById('reject-call-button');
+      const localVideo = document.getElementById('local-video');
+      const remoteVideo = document.getElementById('remote-video');
+      const videoCallContainer = document.getElementById('video-call-container');
+      const createGroupButton = document.getElementById('create-group-button');
+      const groupModal = document.getElementById('group-modal');
+      const groupSettingsModal = document.getElementById('group-settings-modal');
+      const closeModalButton = document.querySelectorAll('.close-button');
+      const groupNameInput = document.getElementById('group-name');
+      const groupPictureUpload = document.getElementById('group-picture-upload');
+      const groupSettingsPictureUpload = document.getElementById('group-settings-picture-upload');
+      const groupMembersList = document.getElementById('group-members-list');
+      const groupSettingsMembersList = document.getElementById('group-settings-members-list');
+      const createGroupConfirmButton = document.getElementById('create-group-confirm');
+      const createGroupCancelButton = document.getElementById('create-group-cancel');
+      const saveGroupPictureButton = document.getElementById('save-group-picture');
+      const profileName = document.getElementById('profile-name');
+      const profilePicture = document.getElementById('profile-picture');
+      const profileModal = document.getElementById('profile-modal');
+      const profilePictureUpload = document.getElementById('profile-picture-upload');
+      const saveProfileButton = document.getElementById('save-profile');
+      const logoutButton = document.getElementById('logout-button');
+      let currentContactId = null;
+      let currentContactType = null;
+      const socket = io({ auth: { token: token, username: username } });
+
+      profileName.textContent = username.toUpperCase();
+      updateProfilePicture();
+
+      profilePicture.addEventListener('click', () => {
+        profileModal.style.display = 'block';
+      });
+
+      closeModalButton.forEach(button => button.addEventListener('click', () => {
+        profileModal.style.display = 'none';
+        groupModal.style.display = 'none';
+        groupSettingsModal.style.display = 'none';
+      }));
+
+      saveProfileButton.addEventListener('click', () => {
+        const file = profilePictureUpload.files[0];
+        if (file) {
+          const formData = new FormData();
+          formData.append('file', file);
+          fetch(`/upload/profile-picture?userId=${userId}`, {
+            method: 'POST',
+            headers: {
+              'x-access-token': token
+            },
+            body: formData
+          })
+            .then(response => response.json())
+            .then(data => {
+              if (data.success) {
+                updateProfilePicture(data.filePath);
+                profileModal.style.display = 'none';
+                loadRecentContacts();
+              } else {
+                alert('Error al subir la foto de perfil');
+              }
+            })
+            .catch(error => console.error('Error al subir la foto de perfil:', error));
+        }
+      });
+
+      logoutButton.addEventListener('click', () => {
+        sessionStorage.clear();
+        window.location.href = '/login';
+      });
+
+      function updateProfilePicture(filePath = null) {
+        const defaultPicture = '/images/logo_user.png';
+        profilePicture.src = filePath ? filePath : `/uploads/profiles/${userId}.jpg`;
+        profilePicture.onerror = () => {
+          profilePicture.src = defaultPicture;
+        };
+      }
+
+      function loadRecentContacts() {
+        fetch(`/recent-contacts?userId=${userId}`, {
+          headers: {
+            'x-access-token': token
+          }
+        })
+          .then(response => response.json())
+          .then(contacts => {
+            contactList.innerHTML = contacts
+              .filter(contact => contact.id !== userId)
+              .filter(contact => !contact.isGroup)
+              .map(contact => `
+                <li data-id="${contact.id}" class="contact">
+                  <div class="contact-info">
+                    <img src="${contact.profile_picture ? contact.profile_picture : '/images/logo_user.png'}" alt="Perfil" class="profile-picture-small">
+                    <span class="username">${contact.username}</span>
+                    ${contact.lastMessage ? `<span class="timestamp">${formatDate(contact.timestamp)}</span>` : ''}
+                  </div>
+                  <div class="last-message">
+                    ${contact.lastMessageUserId === userId ? 'Tú: ' : ''}${formatLastMessage(contact.lastMessage)}
+                  </div>
+                </li>
+              `).join('');
+
+            recentContacts.innerHTML = contacts
+              .filter(contact => contact.isGroup)
+              .map(contact => `
+                <li data-id="${contact.id}" class="contact group-contact" data-type="group">
+                  <div class="contact-info">
+                    <img src="${contact.profile_picture ? contact.profile_picture : '/images/logo_groups.png'}" alt="Perfil" class="profile-picture-small">
+                    <span class="username">${contact.username}</span>
+                    ${contact.lastMessage ? `<span class="timestamp">${formatDate(contact.timestamp)}</span>` : ''}
+                  </div>
+                  <div class="last-message">
+                    ${contact.lastMessageUserId === userId ? 'Tú: ' : ''}${formatLastMessage(contact.lastMessage)}
+                  </div>
+                </li>
+              `).join('');
+          })
+          .catch(error => console.error('Error al cargar contactos recientes:', error));
+      }
+
+      loadRecentContacts();
+
+      socket.on('update recent contacts', () => {
+        loadRecentContacts();
+      });
+
+      socket.on('profile-picture-updated', ({ userId, filePath }) => {
+        if (userId === sessionStorage.getItem('userId')) {
+          updateProfilePicture(filePath);
+        }
+ 
+        document.querySelectorAll(`.contact img[src^="/uploads/profiles/${userId}"]`).forEach(img => {
+          img.src = filePath;
+        });
+
+        const currentContactPicture = document.getElementById('current-contact-picture');
+        if (currentContactId === userId) {
+          currentContactPicture.src = filePath;
+        }
+      });
+
+      socket.on('group-picture-updated', ({ groupId, filePath }) => {
+
+        document.querySelectorAll(`.group-contact img[src^="/uploads/groups/${groupId}"]`).forEach(img => {
+          img.src = filePath;
+        });
+
+        const currentContactPicture = document.getElementById('current-contact-picture');
+        if (currentContactId === groupId) {
+          currentContactPicture.src = filePath;
+        }
+      });
+
+      searchInput.addEventListener('input', async () => {
+        const searchValue = searchInput.value;
+        if (searchValue) {
+          const response = await fetch(`/users?search=${searchValue}&userId=${userId}`, {
+            headers: {
+              'x-access-token': token
+            }
+          });
+          const users = await response.json();
+          contactList.innerHTML = users
+            .filter(user => user.id !== userId)
+            .map(user => `
+              <li data-id="${user.id}" class="contact search-result">
+                ${user.username}
+              </li>
+            `).join('');
+        } else {
+          loadRecentContacts();
+        }
+      });
+
+      contactList.addEventListener('click', (e) => {
+        const contactId = e.target.closest('li').getAttribute('data-id');
+        const contactName = e.target.closest('li').querySelector('.username')?.textContent || e.target.textContent;
+        const contactPicture = e.target.closest('li').querySelector('.profile-picture-small')?.src || '/images/logo_user.png';
+        currentContactId = contactId;
+        currentContactType = 'user';
+        currentContactName.textContent = contactName.toUpperCase();
+        currentContactPicture.src = contactPicture;
+        chatWelcome.style.display = 'none'; 
+        chat.classList.remove('chat-hidden'); 
+        searchInput.value = ''; 
+        loadRecentContacts(); 
+        openChat(contactId, contactName);
+      });
+
+      recentContacts.addEventListener('click', (e) => {
+        const contactId = e.target.closest('li').getAttribute('data-id');
+        const contactName = e.target.closest('li').querySelector('.username').textContent;
+        const contactPicture = e.target.closest('li').querySelector('.profile-picture-small')?.src || '/images/logo_groups.png';
+        currentContactId = contactId;
+        currentContactType = 'group';
+        currentContactName.textContent = contactName.toUpperCase();
+        currentContactPicture.src = contactPicture;
+        chatWelcome.style.display = 'none'; 
+        chat.classList.remove('chat-hidden'); 
+        searchInput.value = ''; 
+        loadRecentContacts(); 
+        openChat(contactId, contactName);
+      });
+
+      createGroupButton.addEventListener('click', () => {
+        groupModal.style.display = 'block';
+        fetch(`/users?search=&userId=${userId}`, {
+          headers: {
+            'x-access-token': token
+          }
+        })
+          .then(response => response.json())
+          .then(users => {
+            groupMembersList.innerHTML = users
+              .filter(user => user.id !== userId)
+              .map(user => `
+                <li>
+                  <input type="checkbox" id="user-${user.id}" value="${user.id}">
+                  <label for="user-${user.id}">${user.username}</label>
+                </li>
+              `).join('');
+          })
+          .catch(error => console.error('Error al cargar usuarios:', error));
+      });
+
+      createGroupCancelButton.addEventListener('click', () => {
+        groupModal.style.display = 'none';
+      });
+
+      createGroupConfirmButton.addEventListener('click', () => {
+        const groupName = groupNameInput.value;
+        const groupPicture = groupPictureUpload.files[0];
+        const members = Array.from(groupMembersList.querySelectorAll('input[type="checkbox"]:checked'))
+          .map(checkbox => checkbox.value);
+
+        members.push(userId); 
+        const formData = new FormData();
+        formData.append('groupName', groupName);
+        if (groupPicture) {
+          formData.append('groupPicture', groupPicture);
+        }
+        formData.append('members', JSON.stringify(members));
+
+        fetch('/create-group', {
+          method: 'POST',
+          headers: {
+            'x-access-token': token
+          },
+          body: formData
+        })
+          .then(response => response.json())
+          .then(data => {
+            const groupHtml = `
+              <li data-id="${data.groupId}" data-type="group" class="contact group-contact">
+                <div class="contact-info">
+                  <img src="${data.groupPicture ? data.groupPicture : '/images/logo_groups.png'}" alt="Perfil" class="profile-picture-small">
+                  <span class="username">${data.groupName}</span>
+                </div>
+                <div class="last-message"></div>
+              </li>
+            `;
+            recentContacts.insertAdjacentHTML('afterbegin', groupHtml);
+            groupModal.style.display = 'none';
+            socket.emit('update recent contacts');
+          })
+          .catch(error => console.error('Error al crear grupo:', error));
+      });
+
+      saveGroupPictureButton.addEventListener('click', () => {
+        const file = groupSettingsPictureUpload.files[0];
+        if (file && currentContactId) {
+          const formData = new FormData();
+          formData.append('file', file);
+          fetch(`/upload/group-picture?groupId=${currentContactId}`, {
+            method: 'POST',
+            headers: {
+              'x-access-token': token
+            },
+            body: formData
+          })
+            .then(response => response.json())
+            .then(data => {
+              if (data.success) {
+                socket.emit('group-picture-updated', { groupId: currentContactId, filePath: data.filePath });
+                groupSettingsModal.style.display = 'none';
+              } else {
+                alert('Error al subir la foto del grupo');
+              }
+            })
+            .catch(error => console.error('Error al subir la foto del grupo:', error));
+        }
+      });
+
+      currentContactName.addEventListener('click', () => {
+        if (currentContactType === 'group') {
+          groupSettingsModal.style.display = 'block';
+          loadGroupSettings(currentContactId);
+        }
+      });
+
+      function loadGroupSettings(groupId) {
+        fetch(`/group-settings?groupId=${groupId}`, {
+          headers: {
+            'x-access-token': token
+          }
+        })
+          .then(response => response.json())
+          .then(data => {
+            const groupSettingsPicture = document.getElementById('group-settings-picture');
+            groupSettingsPicture.src = data.groupPicture || '/images/logo_groups.png';
+            groupSettingsMembersList.innerHTML = data.members.map(member => `
+              <li data-id="${member.id}">
+                <span>${member.username}</span>
+              </li>
+            `).join('');
+          })
+          .catch(error => console.error('Error al cargar configuración del grupo:', error));
+      }
+
+      function openChat(contactId, contactName) {
+        const isGroup = currentContactType === 'group';
+        if (isGroup) {
+          socket.emit('join room', { userId, groupId: contactId });
+        } else {
+          socket.emit('join room', { userId, contactId });
+        }
+        messages.innerHTML = '';
+
+        socket.off('load messages');
+        socket.off('chat message');
+
+        socket.on('load messages', (msgs) => {
+          displayMessages(msgs);
+        });
+        socket.on('chat message', (message) => {
+          displayMessage(message);
+          updateRecentContact(message, contactName);
+        });
+
+        form.onsubmit = async (e) => {
+          e.preventDefault();
+          const msg = input.value;
+          const file = fileInput.files[0];
+
+          if (msg || file) {
+            if (file) {
+              const formData = new FormData();
+              formData.append('file', file);
+
+              const response = await fetch('/upload', {
+                method: 'POST',
+                body: formData,
+                headers: {
+                  'x-access-token': token
+                }
+              });
+
+              const result = await response.json();
+              if (response.status === 200) {
+                const fileData = result.file;
+                if (isGroup) {
+                  socket.emit('chat message', { msg, file: fileData, userId, groupId: currentContactId });
+                } else {
+                  socket.emit('chat message', { msg, file: fileData, userId, contactId: currentContactId });
+                }
+                filePreview.innerHTML = '';
+                fileInput.value = '';
+              } else {
+                alert('Error al subir el archivo: ' + result.message);
+              }
+            } else {
+              if (isGroup) {
+                socket.emit('chat message', { msg, userId, groupId: currentContactId });
+              } else {
+                socket.emit('chat message', { msg, userId, contactId: currentContactId });
+              }
+            }
+            input.value = '';
+            updateRecentContact({ contactId: currentContactId, msg, username, timestamp: new Date().toISOString(), userId, groupId: isGroup ? currentContactId : null }, currentContactName.textContent);
+            socket.emit('notify recent contact', { userId: contactId, contactId: userId, contactName: username });
+          }
+        };
+
+        fileInputIcon.addEventListener('click', () => {
+          fileInput.click();
+        });
+
+        fileInput.addEventListener('change', (e) => {
+          const file = e.target.files[0];
+          if (file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              const fileUrl = e.target.result;
+              filePreview.innerHTML = file.type.startsWith('image/') ?
+                `<img src="${fileUrl}" alt="${file.name}" class="preview-image" style="max-width: 200px;" />` :
+                `<a href="${fileUrl}" target="_blank">${file.name}</a>`;
+            };
+            reader.readAsDataURL(file);
+          }
+        });
+
+        audioButton.addEventListener('mousedown', startRecording);
+        audioButton.addEventListener('mouseup', stopRecording);
+
+        let mediaRecorder;
+        let audioChunks = [];
+
+        async function startRecording() {
+          if (!mediaRecorder) {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            mediaRecorder.ondataavailable = (event) => {
+              audioChunks.push(event.data);
+            };
+            mediaRecorder.onstop = async () => {
+              if (audioChunks.length > 0) {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/mp3' });
+                audioChunks = [];
+                const formData = new FormData();
+                formData.append('file', audioBlob, 'audio.mp3');
+
+                const response = await fetch('/upload', {
+                  method: 'POST',
+                  body: formData,
+                  headers: {
+                    'x-access-token': token
+                  }
+                });
+
+                const result = await response.json();
+                if (response.status === 200) {
+                  const fileData = result.file;
+                  if (isGroup) {
+                    socket.emit('chat message', { msg: '', file: fileData, userId, groupId: currentContactId });
+                  } else {
+                    socket.emit('chat message', { msg: '', file: fileData, userId, contactId: currentContactId });
+                  }
+                } else {
+                  alert('Error al subir el archivo: ' + result.message);
+                }
+              }
+            };
+          }
+          mediaRecorder.start();
+          audioButton.classList.add('recording');
+        }
+
+        function stopRecording() {
+          if (mediaRecorder) {
+            mediaRecorder.stop();
+            audioButton.classList.remove('recording');
+          }
+        }
+
+        callButton.addEventListener('click', () => {
+          if (isGroup) {
+            socket.emit('call group', { userId, groupId: currentContactId, type: 'audio' });
+          } else {
+            socket.emit('call user', { userId, contactId: currentContactId, type: 'audio' });
+          }
+          showCallInterface('Llamada en progreso...');
+        });
+
+        videoCallButton.addEventListener('click', () => {
+          if (isGroup) {
+            socket.emit('call group', { userId, groupId: currentContactId, type: 'video' });
+          } else {
+            socket.emit('call user', { userId, contactId: currentContactId, type: 'video' });
+          }
+          showCallInterface('Videollamada en progreso...');
+        });
+
+        endCallButton.addEventListener('click', () => {
+          if (isGroup) {
+            socket.emit('end group call', { userId, groupId: currentContactId });
+          } else {
+            socket.emit('end call', { userId, contactId: currentContactId });
+          }
+          hideCallInterface();
+        });
+
+        socket.on('incoming call', ({ callerId, callerName, type }) => {
+          showIncomingCall(callerName, type);
+          acceptCallButton.onclick = () => {
+            socket.emit('accept call', { userId, callerId, type });
+            hideIncomingCall();
+            showCallInterface(`En ${type === 'audio' ? 'Llamada' : 'Videollamada'} con ${callerName}`);
+            startCall(type);
+          };
+          rejectCallButton.onclick = () => {
+            socket.emit('reject call', { userId, callerId });
+            hideIncomingCall();
+          };
+        });
+
+        socket.on('call accepted', ({ type }) => {
+          showCallInterface(`En ${type === 'audio' ? 'Llamada' : 'Videollamada'} con ${currentContactId}`);
+          startCall(type);
+        });
+
+        socket.on('call ended', () => {
+          hideCallInterface();
+        });
+
+        function startCall(type) {
+          navigator.mediaDevices.getUserMedia({ video: type === 'video', audio: true })
+            .then(stream => {
+              localVideo.srcObject = stream;
+
+              const peer = new RTCPeerConnection();
+              peer.addStream(stream);
+              peer.onaddstream = (event) => {
+                remoteVideo.srcObject = event.stream;
+              };
+
+              if (type === 'video') {
+                peer.createOffer().then(offer => {
+                  peer.setLocalDescription(offer);
+                  socket.emit('webrtc-offer', { offer, to: currentContactId });
+                });
+              }
+            })
+            .catch(error => console.error('Error al iniciar llamada:', error));
+        }
+
+        function showCallInterface(message) {
+          videoCallContainer.style.display = 'flex';
+          incomingCallText.innerText = message;
+        }
+
+        function hideCallInterface() {
+          videoCallContainer.style.display = 'none';
+          localVideo.srcObject = null;
+          remoteVideo.srcObject = null;
+        }
+
+        function showIncomingCall(callerName, type) {
+          incomingCallContainer.style.display = 'flex';
+          incomingCallText.innerText = `Llamada ${type === 'audio' ? 'de voz' : 'de video'} entrante de ${callerName}`;
+        }
+
+        function hideIncomingCall() {
+          incomingCallContainer.style.display = 'none';
+        }
+      }
+
+      function displayMessages(msgs) {
+        messages.innerHTML = '';
+        msgs.forEach(msg => {
+          displayMessage(msg);
+        });
+        scrollToBottom();
+      }
+
+      function displayMessage({ msg, timestamp, username, file }) {
+        const isCurrentUser = username.toLowerCase() === sessionStorage.getItem('username').toLowerCase();
+        const displayName = isCurrentUser ? 'Tú' : username;
+        const messageClass = isCurrentUser ? 'sent' : 'received';
+        let fileLink = '';
+
+        if (file) {
+          if (file.url.endsWith('.jpg') || file.url.endsWith('.jpeg') || file.url.endsWith('.png') || file.url.endsWith('.gif')) {
+            fileLink = `<img src="${file.url}" alt="${file.name}" class="chat-image" style="max-width: 200px;" />`;
+          } else if (file.url.endsWith('.mp4') || file.url.endsWith('.avi') || file.url.endsWith('.mov')) {
+            fileLink = `<video src="${file.url}" controls class="chat-video" style="max-width: 200px;"></video>`;
+          } else if (file.url.endsWith('.mp3')) {
+            fileLink = `<audio controls src="${file.url}" class="chat-audio"></audio>`;
+          } else {
+            fileLink = `<a href="${file.url}" target="_blank">${file.name}</a>`;
+          }
+        }
+
+        const item = `
+          <li class="message ${messageClass}">
+            <div class="message-content ${messageClass}">
+              <div class="username">${displayName}</div>
+              ${fileLink ? `<p>${fileLink}</p>` : ''}
+              <p>${msg}</p>
+              <div class="message-info">
+                <small class="timestamp">${formatDate(timestamp)}</small>
+              </div>
+            </div>
+          </li>`;
+
+        messages.insertAdjacentHTML('beforeend', item);
+      }
+
+      function updateRecentContact(message, contactName) {
+        const contactId = message.contactId || message.groupId;
+        const lastMessage = message.file ? (message.file.url.match(/\.(jpg|jpeg|png|gif)$/) ? '📷 Foto' : message.file.url.match(/\.(mp4|avi|mov)$/) ? '📹 Video' : '🎵 Audio') : message.msg;
+        const recentContact = `
+          <li data-id="${contactId}" class="contact ${message.groupId ? 'group-contact' : ''}" data-type="${message.groupId ? 'group' : 'chat'}">
+            <div class="contact-info">
+              <img src="${message.profile_picture ? message.profile_picture : message.groupId ? '/images/logo_groups.png' : '/images/logo_user.png'}" alt="Perfil" class="profile-picture-small">
+              <span class="username">${contactName}</span>
+              <span class="timestamp">${message.msg || message.file ? formatDate(message.timestamp) : ''}</span>
+            </div>
+            <div class="last-message">
+              ${message.userId === userId ? 'Tú: ' : ''}${lastMessage}
+            </div>
+          </li>
+        `;
+
+        const contactElement = document.querySelector(`.contact[data-id="${contactId}"]`);
+        if (contactElement) {
+          contactElement.outerHTML = recentContact;
+        } else {
+          if (message.groupId) {
+            recentContacts.insertAdjacentHTML('afterbegin', recentContact);
+          } else {
+            contactList.insertAdjacentHTML('afterbegin', recentContact);
+          }
+        }
+      }
+
+      function formatDate(isoString) {
+        const date = new Date(isoString);
+        return date.toLocaleString();
+      }
+
+      function formatLastMessage(message) {
+        if (message) {
+          if (message.match(/\.(jpg|jpeg|png|gif)$/)) {
+            return '📷 Foto';
+          } else if (message.match(/\.mp3$/)) {
+            return '🎵 Audio';
+          } else if (message.match(/\.(mp4|avi|mov)$/)) {
+            return '📹 Video';
+          } else {
+            return message;
+          }
+        }
+        return '';
+      }
+
+      function scrollToBottom() {
+        messages.scrollTop = messages.scrollHeight;
+      }
+    });
+  </script>
+</body>
+
+</html>

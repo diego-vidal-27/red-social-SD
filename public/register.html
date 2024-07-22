@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Registro</title>
+  <link rel="stylesheet" href="/css/register.css">
+</head>
+<body>
+  <form id="register-form">
+    <h2>Registro</h2>
+    <label for="first-name">Nombres</label>
+    <input type="text" id="first-name" placeholder="Nombres" required>
+
+    <label for="last-name">Apellidos</label>
+    <input type="text" id="last-name" placeholder="Apellidos" required>
+
+    <label for="gender">Genero</label>
+    <select id="gender" required>
+      <option value="">Seleccione el genero</option>
+      <option value="male">Masculino</option>
+      <option value="female">Femenino</option>
+      <option value="other">Otro</option>
+    </select>
+
+    <label for="birthdate">Fecha de Nacimiento</label>
+    <input type="date" id="birthdate" required>
+
+    <label for="phone">Número de Celular</label>
+    <div class="phone-container">
+      <select id="country-code" required>
+        <option value="+51">+51 PE</option>
+        <option value="+1">+56 CL</option>
+        <option value="+44">+54 AR</option>
+      </select>
+      <input type="tel" id="phone" placeholder="Número de Celular" required>
+    </div>
+
+    <label for="register-username">Nombre de Usuario</label>
+    <input type="text" id="register-username" placeholder="Nombre de Usuario" required>
+
+    <label for="register-password">Contraseña</label>
+    <input type="password" id="register-password" placeholder="Contraseña" required>
+
+    <label for="register-email">Correo Electrónico</label>
+    <input type="email" id="register-email" placeholder="Correo Electrónico" required>
+
+    <button type="submit">Registrar</button>
+    <div class="login-link">
+      <p>¿Ya tienes una cuenta? <a href="/login">Inicia sesión</a></p>
+    </div>
+  </form>
+
+  <script>
+    document.getElementById('register-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const first_name = document.getElementById('first-name').value;
+      const last_name = document.getElementById('last-name').value;
+      const gender = document.getElementById('gender').value;
+      const birthdate = document.getElementById('birthdate').value;
+      const countryCode = document.getElementById('country-code').value;
+      const phone = document.getElementById('phone').value;
+      const username = document.getElementById('register-username').value;
+      const email = document.getElementById('register-email').value;
+      const password = document.getElementById('register-password').value;
+
+      console.log('Datos enviados:', {
+        first_name,
+        last_name,
+        gender,
+        birthdate,
+        phone: `${countryCode}${phone}`,
+        username,
+        email,
+        password
+      });
+
+      try {
+        const response = await fetch('/register', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            first_name,
+            last_name,
+            gender,
+            birthdate,
+            phone: `${countryCode}${phone}`,
+            username,
+            email,
+            password
+          }),
+        });
+
+        const result = await response.json();
+        console.log('Respuesta recibida:', result);
+        if (response.ok) {
+          alert('Usuario registrado correctamente');
+          window.location.href = '/login';
+        } else {
+          alert('Error al registrar: ' + result.message);
+        }
+      } catch (error) {
+        console.error('Error:', error);
+        alert('Error al registrar: ' + error.message);
+      }
+    });
+  </script>
+  <script>
+    window.addEventListener('pageshow', function(event) {
+        if (event.persisted) {
+            window.location.reload();
+        }
+    });
+  </script>
+  <script>
+      window.addEventListener('popstate', function(event) {
+          window.location.reload();
+      });
+  </script>
+</body>
+</html>
